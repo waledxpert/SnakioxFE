@@ -1,0 +1,10 @@
+{
+  "name": "snakiox-art-generator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generator.js",
+    "sample:outputs": "node generator.js --count 12 --out output"
+  }
+}
