@@ -45,7 +45,7 @@ export const SNAKIOX_ABI = [
   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)"
 ];
 
-export async function mintCompletedRun(rawPayload) {
+export async function mintCompletedRun(rawPayload, onStatus = () => {}) {
   if (!window.ethereum) {
     throw new Error("Install or unlock a browser wallet to mint.");
   }
@@ -62,11 +62,16 @@ export async function mintCompletedRun(rawPayload) {
   }
 
   const contract = new Contract(payload.contractAddress, SNAKIOX_ABI, signer);
-  // Positional pricing: pay what THIS wallet owes for its next mint.
-  const price = await contract.mintPriceFor(signerAddress);
-  // Commit-reveal: wait until the backend-committed block is mined so traits are
-  // fixed and the mint can't revert as "too early".
-  await waitForBlock(provider, Number(payload.revealBlock || 0));
+
+  // Read the price AND wait for the reveal block concurrently — the price read
+  // shouldn't add latency on top of the (often-zero) block wait. For a played
+  // run the reveal block is usually already mined, so this resolves instantly.
+  const [price] = await Promise.all([
+    contract.mintPriceFor(signerAddress),
+    waitForBlock(provider, Number(payload.revealBlock || 0), onStatus)
+  ]);
+
+  onStatus("Confirm the mint in your wallet");
   // Only the hash of the replay goes on-chain — the blob never touches calldata.
   const tx = await contract.mintWithGameResult(
     payload.snakeDataHash,
@@ -78,6 +83,8 @@ export async function mintCompletedRun(rawPayload) {
     payload.signature,
     { value: price }
   );
+
+  onStatus("Confirming transaction on-chain");
   const receipt = await tx.wait();
 
   return {
@@ -124,13 +131,37 @@ function normalizeMintPayload(payload) {
   };
 }
 
-// Wait until the commit-reveal block has been mined (a few seconds). Polls a
-// handful of times; if it lags, we proceed and the wallet shows the revert.
-async function waitForBlock(provider, target) {
+// Read-only: is the commit-reveal block already mined, so the mint will be
+// instant (no wait)? Purely informational — the contract still enforces
+// `block.number > revealBlock`, so this can't be used to game anything.
+export async function getRevealStatus(revealBlock) {
+  const target = Number(revealBlock || 0);
+  if (!target) return { ready: true, blocksRemaining: 0, secondsRemaining: 0 };
+  if (!window.ethereum) return { ready: false, blocksRemaining: 1, secondsRemaining: 12 };
+
+  const provider = new BrowserProvider(window.ethereum);
+  const current = await provider.getBlockNumber();
+  const ready = current > target;
+  const blocksRemaining = ready ? 0 : target - current + 1;
+  return { ready, blocksRemaining, secondsRemaining: blocksRemaining * 12 };
+}
+
+// Wait until the commit-reveal block has been mined. For a played run this is
+// usually already true (returns immediately); for a random→instant mint it's a
+// block or two. Reports a live countdown so the UI never looks frozen.
+async function waitForBlock(provider, target, onStatus = () => {}) {
   if (!target) return;
-  for (let i = 0; i < 40; i++) {
-    if ((await provider.getBlockNumber()) > target) return;
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  let current = await provider.getBlockNumber();
+  if (current > target) return; // reveal block already mined — no wait
+
+  // ~12s/block on Sepolia; poll a bit faster so we fire as soon as it lands.
+  for (let i = 0; i < 60; i++) {
+    const remaining = Math.max(target - current + 1, 1);
+    onStatus(`Waiting for reveal block (~${remaining * 12}s)`);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    current = await provider.getBlockNumber();
+    if (current > target) return;
   }
 }
 
@@ -280,6 +311,16 @@ export async function transferContractOwnership(newOwner) {
 
 async function ensureChain(chainId) {
   const hexChainId = `0x${chainId.toString(16)}`;
+
+  // Skip the round-trip to the wallet when we're already on the right chain —
+  // eth_chainId is cached/instant, wallet_switchEthereumChain is not. This is
+  // called before every read, so the redundant switches added real latency.
+  try {
+    const currentChainId = await window.ethereum.request({ method: "eth_chainId" });
+    if (currentChainId?.toLowerCase() === hexChainId.toLowerCase()) return;
+  } catch {
+    // Fall through to an explicit switch if we can't read the current chain.
+  }
 
   try {
     await window.ethereum.request({

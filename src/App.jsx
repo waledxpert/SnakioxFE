@@ -56,6 +56,7 @@ import {
 import { useGame } from "./state/GameContext";
 import {
   deleteContractDefaultRoyalty,
+  getRevealStatus,
   loadContractAdminSnapshot,
   loadMintSupplySnapshot,
   loadMintedToken,
@@ -89,6 +90,9 @@ const DIRECTION_KEYS = {
 };
 
 const CONTRACT_ADDRESS = import.meta.env.VITE_MINT_CONTRACT_ADDRESS || "";
+// Set VITE_SHOW_REVEAL_STATUS=false in the frontend .env to hide the
+// "instant mint ready / reveal in ~Xs" badge from players.
+const SHOW_REVEAL_STATUS = import.meta.env.VITE_SHOW_REVEAL_STATUS !== "false";
 const OPENSEA_BASE_URL =
   import.meta.env.VITE_OPENSEA_BASE_URL || "https://testnets.opensea.io/assets/sepolia";
 const SEPOLIA_ETHERSCAN_BASE_URL = "https://sepolia.etherscan.io";
@@ -121,6 +125,39 @@ function buildEtherscanTxUrl(txHash) {
   return `${SEPOLIA_ETHERSCAN_BASE_URL}/tx/${txHash}`;
 }
 
+// A round is "in progress" from the moment it starts (playing → dead → locked)
+// until it has been minted. While it is, you can't start another run or generate
+// a random mint — the current round must be minted first. Cleared once the
+// locked result has a txHash (minted).
+function isRoundPending(state) {
+  const { game, mint } = state;
+  const lockedResult = game.lockedResult;
+  const playing = game.phase === "playing" || game.phase === "dead";
+  const awaitingMint = Boolean((mint || lockedResult) && !lockedResult?.txHash);
+  return playing || awaitingMint;
+}
+
+// How many of the wallet's mint spots are left. Prefers the on-chain count
+// (supply.mintedByWallet) and falls back to the backend status. A wallet at 3/3
+// has minted all its spots — START / GENERATE should be off for it.
+function mintSpotsLeft(status, supply) {
+  const max = supply?.maxMintsPerWallet ?? status?.maxMintsPerWallet ?? 3;
+  if (supply?.mintedByWallet != null) return Math.max(max - supply.mintedByWallet, 0);
+  if (status?.remainingMints != null) return status.remainingMints;
+  return max;
+}
+
+// START / GENERATE are available whenever the wallet is registered, has play
+// access, still has a mint spot (not 3/3) and isn't mid-round (must mint the
+// current round first).
+function canStartRound(state, supply) {
+  const status = state.status;
+  if (!status?.registered) return false;
+  const hasAccess =
+    status.isAllowlisted || status.inviteRequired === false || status.hasInvite;
+  return Boolean(hasAccess) && mintSpotsLeft(status, supply) > 0 && !isRoundPending(state);
+}
+
 function App() {
   const { state, dispatch } = useGame();
   const { game } = state;
@@ -134,6 +171,10 @@ function App() {
   const { run, busy } = useActionGuard();
   const level = getLevel(game.score);
   const speed = getSpeed(game.score);
+  // START / GENERATE are enabled while the wallet still has a mint spot (not 3/3)
+  // and isn't mid-round; `mintedOut` flags a wallet that has used all 3 spots.
+  const canPlayRound = canStartRound(state, supply);
+  const mintedOut = Boolean(state.status?.registered) && mintSpotsLeft(state.status, supply) <= 0;
   const completedSessionRef = useRef(null);
   const isAdminPath = window.location.pathname.startsWith("/sekioadmini");
 
@@ -358,8 +399,10 @@ function App() {
     }
 
     try {
-      dispatch({ type: "SET_LOADING", label: "Minting" });
-      const minted = await mintCompletedRun(mintPayload);
+      dispatch({ type: "SET_LOADING", label: "Preparing mint" });
+      const minted = await mintCompletedRun(mintPayload, (label) =>
+        dispatch({ type: "SET_LOADING", label })
+      );
       const sessionId = mintPayload.sessionId || mintPayload.id;
       await recordMint(state.wallet || mintPayload.wallet, sessionId, minted.tokenId, minted.txHash);
       dispatch({ type: "MINTED", tokenId: minted.tokenId, txHash: minted.txHash });
@@ -425,6 +468,8 @@ function App() {
           <ControlPanel
             state={state}
             busy={busy}
+            canPlayRound={canPlayRound}
+            mintedOut={mintedOut}
             onWalletInput={handleWalletInput}
             onConnect={connectAndSignIn}
             onDisconnect={disconnect}
@@ -443,7 +488,7 @@ function App() {
             speed={speed}
             supply={supply}
           />
-          <section className="console-shell desktop-console flex min-h-0 flex-col">
+          <section className="flex flex-col min-h-0 console-shell desktop-console">
             <div className="brand-strip">
               <span>SNAKIOX</span>
               <span>MODEL XERIA-09</span>
@@ -460,6 +505,8 @@ function App() {
           <ResultPanel
             state={state}
             busy={busy}
+            canPlayRound={canPlayRound}
+            mintedOut={mintedOut}
             level={level}
             speed={speed}
             onMint={mintRun}
@@ -472,7 +519,7 @@ function App() {
       {isGameModalOpen && (
         <MobileGameModal onClose={() => setIsGameModalOpen(false)}>
           <GameSurface
-            canStart={Boolean(state.status?.canPlay || state.status?.activeSessionId)}
+            canStart={canPlayRound}
             dispatch={dispatch}
             game={game}
             isMobile
@@ -568,7 +615,7 @@ function MobileGameModal({ children, onClose }) {
 
 function MintSupplyTracker({ supply }) {
   const totalMinted = supply?.totalMinted ?? 0;
-  const maxSupply = supply?.maxSupply ?? 6666;
+  const maxSupply = supply?.maxSupply ?? 7777;
   const percentage = maxSupply > 0 ? Math.min((totalMinted / maxSupply) * 100, 100) : 0;
 
   return (
@@ -1092,14 +1139,14 @@ function AdminPage({ dialog }) {
                     value={form.royaltyReceiver}
                   />
                   <input
-                    className="terminal-input mt-2"
+                    className="mt-2 terminal-input"
                     name="royaltyBps"
                     onChange={updateForm}
                     placeholder="bps e.g. 500"
                     value={form.royaltyBps}
                   />
                   <button
-                    className="press-key wide mt-2"
+                    className="mt-2 press-key wide"
                     onClick={() =>
                       runAdminAction("Setting royalty", () =>
                         setContractDefaultRoyalty(form.royaltyReceiver, form.royaltyBps)
@@ -1110,7 +1157,7 @@ function AdminPage({ dialog }) {
                     SET ROYALTY
                   </button>
                   <button
-                    className="press-key wide danger mt-2"
+                    className="mt-2 press-key wide danger"
                     onClick={() =>
                       runAdminAction("Deleting royalty", () => deleteContractDefaultRoyalty())
                     }
@@ -1161,14 +1208,14 @@ function AdminPage({ dialog }) {
                     value={form.vaultRecipient}
                   />
                   <input
-                    className="terminal-input mt-2"
+                    className="mt-2 terminal-input"
                     name="vaultCount"
                     onChange={updateForm}
                     placeholder="count e.g. 10"
                     value={form.vaultCount}
                   />
                   <button
-                    className="press-key wide mt-2"
+                    className="mt-2 press-key wide"
                     onClick={() =>
                       runAdminAction("Minting vault", () =>
                         mintVaultToWallet(form.vaultRecipient, form.vaultCount)
@@ -1204,7 +1251,7 @@ function AdminPage({ dialog }) {
                     value={form.transferValidator}
                   />
                   <button
-                    className="press-key wide mt-2"
+                    className="mt-2 press-key wide"
                     onClick={() =>
                       runAdminAction("Setting validator", () =>
                         setContractTransferValidator(form.transferValidator)
@@ -1214,7 +1261,7 @@ function AdminPage({ dialog }) {
                   >
                     SET VALIDATOR
                   </button>
-                  <label className="toggle-row mt-2">
+                  <label className="mt-2 toggle-row">
                     <input
                       checked={form.autoApprove}
                       name="autoApprove"
@@ -1224,7 +1271,7 @@ function AdminPage({ dialog }) {
                     <span>Auto-approve transfers from validator</span>
                   </label>
                   <button
-                    className="press-key wide mt-2"
+                    className="mt-2 press-key wide"
                     onClick={() =>
                       runAdminAction("Updating auto-approve", () =>
                         setContractAutoApproveTransfers(form.autoApprove)
@@ -1538,6 +1585,8 @@ function CustomDialog({ dialog }) {
 function ControlPanel({
   state,
   busy,
+  canPlayRound,
+  mintedOut,
   onWalletInput,
   onConnect,
   onDisconnect,
@@ -1550,10 +1599,13 @@ function ControlPanel({
   onGenerateRandom
 }) {
   const connected = Boolean(state.wallet);
-  const canStart = state.status?.canPlay || state.status?.activeSessionId;
   // Item 5: once a wallet is allowlisted or already holds an active code, it
   // can't redeem again — lock the input and the button.
-  const inviteLocked = Boolean(state.status?.isAllowlisted || state.status?.hasInvite);
+  const inviteLocked = Boolean(
+    state.status?.isAllowlisted ||
+      state.status?.hasInvite ||
+      state.status?.inviteRequired === false
+  );
 
   return (
     <aside className="panel">
@@ -1608,18 +1660,19 @@ function ControlPanel({
       </div>
       {/* Item 4: on small screens these move into the RUN OUTPUT panel. */}
       <div className="desktop-only control-actions">
-        <button className="start-button" onClick={onStart} disabled={busy || !canStart}>
+        <button className="start-button" onClick={onStart} disabled={busy || !canPlayRound}>
           <Gamepad2 size={18} />
           START RUN
         </button>
         <button
           className="press-key wide"
           onClick={onGenerateRandom}
-          disabled={busy || !state.status?.canPlay}
+          disabled={busy || !canPlayRound}
           title="Skip playing: get a random score and mint it. No replay, and it can't be re-rolled."
         >
           GENERATE RANDOM &amp; MINT
         </button>
+        {mintedOut && <div className="minted-out-note">All 3 mint spots used.</div>}
         <button className="press-key wide" onClick={onResult} disabled={busy || !connected}>
           LOAD LOCKED RESULT
         </button>
@@ -1727,13 +1780,41 @@ function MobileDirectionPad({ canStart, dispatch, gamePhase, onStart }) {
   );
 }
 
-function ResultPanel({ state, busy, level, speed, onMint, onGenerateRandom, onResult }) {
+function ResultPanel({ state, busy, canPlayRound, mintedOut, level, speed, onMint, onGenerateRandom, onResult }) {
   const session = state.game.lockedResult;
   const hasInviteAccess =
     state.status?.isAllowlisted ||
     state.status?.inviteRequired === false ||
     state.status?.hasInvite;
   const canMint = Boolean((state.mint || session) && !session?.txHash && hasInviteAccess);
+  const revealBlock = Number(state.mint?.revealBlock ?? session?.revealBlock ?? 0);
+  const [reveal, setReveal] = useState(null);
+
+  // Poll the reveal-block readiness only while a mintable run is pending and the
+  // block hasn't landed yet — then minting is instant. Read-only; not gameable.
+  useEffect(() => {
+    if (!SHOW_REVEAL_STATUS || !canMint || !revealBlock) {
+      setReveal(null);
+      return;
+    }
+    let active = true;
+    let timer;
+    const tick = async () => {
+      try {
+        const status = await getRevealStatus(revealBlock);
+        if (!active) return;
+        setReveal(status);
+        if (!status.ready) timer = window.setTimeout(tick, 6000);
+      } catch {
+        // Ignore — the badge is purely informational.
+      }
+    };
+    tick();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [canMint, revealBlock]);
 
   return (
     <aside className="panel">
@@ -1761,17 +1842,25 @@ function ResultPanel({ state, busy, level, speed, onMint, onGenerateRandom, onRe
         <ShieldCheck size={18} />
         MINT NFT
       </button>
+      {SHOW_REVEAL_STATUS && canMint && reveal && (
+        <div className={`reveal-badge ${reveal.ready ? "ready" : ""}`}>
+          {reveal.ready
+            ? "⚡ Instant mint ready, no wait"
+            : `Reveal locks in ~${reveal.secondsRemaining}s`}
+        </div>
+      )}
       {/* Item 4: on small screens the control panel hides these, so they live
           here under MINT NFT instead. */}
       <div className="mobile-only control-actions">
         <button
           className="press-key wide"
           onClick={onGenerateRandom}
-          disabled={busy || !state.status?.canPlay}
+          disabled={busy || !canPlayRound}
           title="Skip playing: get a random score and mint it. No replay, and it can't be re-rolled."
         >
           GENERATE RANDOM &amp; MINT
         </button>
+        {mintedOut && <div className="minted-out-note">All 3 mint spots used.</div>}
         <button className="press-key wide" onClick={onResult} disabled={busy || !state.wallet}>
           LOAD LOCKED RESULT
         </button>

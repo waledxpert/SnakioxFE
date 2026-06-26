@@ -227,6 +227,15 @@ button:disabled {
   gap: 0.85rem;
 }
 
+.minted-out-note {
+  background: #0d150e;
+  border: 2px solid #f2c26e;
+  color: #ffe1a1;
+  font-size: 0.78rem;
+  padding: 0.55rem 0.7rem;
+  text-align: center;
+}
+
 /* Responsive visibility (mobile breakpoint = 640px, see media query below). */
 .mobile-only {
   display: none;
@@ -847,6 +856,22 @@ a.press-key {
   font-size: 1.15rem;
   justify-content: center;
   padding: 0;
+}
+
+/* Mint readiness badge (hidden via VITE_SHOW_REVEAL_STATUS=false) */
+.reveal-badge {
+  background: #0d150e;
+  border: 2px solid #f2c26e;
+  color: #ffe1a1;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  padding: 0.5rem 0.65rem;
+  text-align: center;
+}
+
+.reveal-badge.ready {
+  border-color: #6fe06f;
+  color: #b6ff9a;
 }
 
 /* ---- Admin console (routed: overview / allowlist / invites) ---- */
