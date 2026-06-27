@@ -16,7 +16,7 @@ const FALLBACK_CONTRACT_ADDRESS = import.meta.env.VITE_MINT_CONTRACT_ADDRESS || 
 const FALLBACK_CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID || SEPOLIA_CHAIN_ID);
 
 export const SNAKIOX_ABI = [
-  "function mintWithGameResult(bytes32 snakeDataHash, uint256 score, uint256 snakeLength, bytes32 sessionHash, bool random, uint256 revealBlock, bytes signature) payable returns (uint256 tokenId)",
+  "function mint(bytes32 snakeDataHash, uint256 score, uint256 snakeLength, bytes32 sessionHash, bool random, uint256 revealBlock, bytes signature) payable returns (uint256 tokenId)",
   "function saveReplayOnchain(uint256 tokenId, bytes replay)",
   "function saveReplayURI(uint256 tokenId, string replayURI)",
   "function replayData(uint256 tokenId) view returns (bytes)",
@@ -74,7 +74,7 @@ export async function mintCompletedRun(rawPayload, onStatus = () => {}) {
 
   onStatus("Confirm the mint in your wallet");
   // Only the hash of the replay goes on-chain — the blob never touches calldata.
-  const tx = await contract.mintWithGameResult(
+  const tx = await contract.mint(
     payload.snakeDataHash,
     payload.score,
     payload.snakeLength,
