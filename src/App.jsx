@@ -179,6 +179,22 @@ function App() {
   // it (or any other guarded action) is in flight is dropped, and `pending`
   // drives the disabled state of the buttons so rapid clicks can't re-fire.
   const { run, busy } = useActionGuard();
+  // When the backend sheds load (503), the API layer retries silently with
+  // backoff. `retryInfo` ({ key, attempt }) surfaces that to the user as a
+  // "busy — retrying" state on the action's button. Cleared automatically once
+  // no guarded action is in flight.
+  const [retryInfo, setRetryInfo] = useState(null);
+  const onRetry = useCallback(
+    (key) =>
+      ({ attempt }) =>
+        setRetryInfo({ key, attempt }),
+    []
+  );
+
+  // Clear the retry banner once every guarded action has settled.
+  useEffect(() => {
+    if (!busy) setRetryInfo(null);
+  }, [busy]);
   const level = getLevel(game.score);
   const speed = getSpeed(game.score);
   // START / GENERATE are enabled while the wallet still has a mint spot (not 3/3)
@@ -242,15 +258,21 @@ function App() {
     completedSessionRef.current = game.sessionId;
     dispatch({ type: "SET_LOADING", label: "Locking run" });
 
-    completeGame({
-      sessionId: game.sessionId,
-      wallet: state.wallet,
-      score: game.score,
-      snakeLength: game.snake.length,
-      finalSnakeCells: game.snake,
-      moves: game.moves,
-      deathReason: game.deathReason
-    })
+    completeGame(
+      {
+        sessionId: game.sessionId,
+        wallet: state.wallet,
+        score: game.score,
+        snakeLength: game.snake.length,
+        finalSnakeCells: game.snake,
+        moves: game.moves,
+        deathReason: game.deathReason
+      },
+      {
+        onRetry: ({ attempt }) =>
+          dispatch({ type: "SET_LOADING", label: `Server busy — locking run, retrying (${attempt})` })
+      }
+    )
       .then((result) => {
         dispatch({ type: "LOCKED", session: result.session, mint: result.mint });
       })
@@ -377,7 +399,7 @@ function App() {
       try {
         completedSessionRef.current = null;
         dispatch({ type: "SET_LOADING", label: "Starting" });
-        const session = await startGame(state.wallet);
+        const session = await startGame(state.wallet, { onRetry: onRetry("play") });
         dispatch({ type: "STARTED", sessionId: session.sessionId });
       } catch (error) {
         dispatch({ type: "SET_ERROR", message: error.message });
@@ -423,7 +445,7 @@ function App() {
     run("mint", async () => {
       try {
         dispatch({ type: "SET_LOADING", label: "Generating random score" });
-        const result = await generateRandomMint(state.wallet);
+        const result = await generateRandomMint(state.wallet, { onRetry: onRetry("mint") });
         dispatch({ type: "LOCKED", session: result.session, mint: result.mint });
         await mintFromPayload(result.mint);
       } catch (error) {
@@ -443,7 +465,9 @@ function App() {
         dispatch({ type: "SET_LOADING", label })
       );
       const sessionId = mintPayload.sessionId || mintPayload.id;
-      await recordMint(state.wallet || mintPayload.wallet, sessionId, minted.tokenId, minted.txHash);
+      await recordMint(state.wallet || mintPayload.wallet, sessionId, minted.tokenId, minted.txHash, {
+        onRetry: onRetry("mint")
+      });
       dispatch({ type: "MINTED", tokenId: minted.tokenId, txHash: minted.txHash });
       const [status, nextSupply] = await Promise.all([
         getGameStatus(state.wallet),
@@ -507,6 +531,7 @@ function App() {
           <ControlPanel
             state={state}
             busy={busy}
+            retryInfo={retryInfo}
             canPlayRound={canPlayRound}
             mintedOut={mintedOut}
             onWalletInput={handleWalletInput}
@@ -544,6 +569,7 @@ function App() {
           <ResultPanel
             state={state}
             busy={busy}
+            retryInfo={retryInfo}
             canPlayRound={canPlayRound}
             mintedOut={mintedOut}
             level={level}
@@ -564,6 +590,7 @@ function App() {
             isMobile
             level={level}
             onStart={play}
+            retryInfo={retryInfo}
             sessions={state.lockedResults}
             speed={speed}
             supply={supply}
@@ -657,6 +684,7 @@ function GameSurface({
   isMobile = false,
   level,
   onStart,
+  retryInfo,
   sessions,
   speed,
   supply
@@ -673,6 +701,7 @@ function GameSurface({
             dispatch={dispatch}
             gamePhase={game.phase}
             onStart={onStart}
+            retryInfo={retryInfo}
           />
         ) : null}
       </div>
@@ -1731,6 +1760,7 @@ function CustomDialog({ dialog }) {
 function ControlPanel({
   state,
   busy,
+  retryInfo,
   canPlayRound,
   mintedOut,
   onWalletInput,
@@ -1745,6 +1775,8 @@ function ControlPanel({
   onGenerateRandom
 }) {
   const connected = Boolean(state.wallet);
+  const startRetrying = retryInfo?.key === "play";
+  const mintRetrying = retryInfo?.key === "mint";
   // Item 5: once a wallet is allowlisted or already holds an active code, it
   // can't redeem again — lock the input and the button.
   const inviteLocked = Boolean(
@@ -1808,7 +1840,7 @@ function ControlPanel({
       <div className="desktop-only control-actions">
         <button className="start-button" onClick={onStart} disabled={busy || !canPlayRound}>
           <Gamepad2 size={18} />
-          START RUN
+          {startRetrying ? `BUSY — RETRYING (${retryInfo.attempt})` : "START RUN"}
         </button>
         <button
           className="press-key wide"
@@ -1816,14 +1848,20 @@ function ControlPanel({
           disabled={busy || !canPlayRound}
           title="Skip playing: get a random score and mint it. No replay, and it can't be re-rolled."
         >
-          GENERATE RANDOM &amp; MINT
+          {mintRetrying ? `BUSY — RETRYING (${retryInfo.attempt})` : "GENERATE RANDOM & MINT"}
         </button>
         {mintedOut && <div className="minted-out-note">All 3 mint spots used.</div>}
         <button className="press-key wide" onClick={onResult} disabled={busy || !connected}>
           LOAD LOCKED RESULT
         </button>
       </div>
-      {state.loadingLabel && <div className="pulse-note">{state.loadingLabel}...</div>}
+      {retryInfo ? (
+        <div className="pulse-note">
+          Server busy — retrying (attempt {retryInfo.attempt})…
+        </div>
+      ) : (
+        state.loadingLabel && <div className="pulse-note">{state.loadingLabel}...</div>
+      )}
       {state.error && <div className="error-tape">{state.error}</div>}
     </aside>
   );
@@ -1892,9 +1930,10 @@ function TouchControls({ dispatch }) {
   );
 }
 
-function MobileDirectionPad({ canStart, dispatch, gamePhase, onStart }) {
+function MobileDirectionPad({ canStart, dispatch, gamePhase, onStart, retryInfo }) {
   const queue = (direction) => dispatch({ type: "QUEUE_DIRECTION", direction });
   const isRunning = gamePhase === "running";
+  const startRetrying = retryInfo?.key === "play";
 
   return (
     <div className="mobile-control-deck">
@@ -1920,14 +1959,15 @@ function MobileDirectionPad({ canStart, dispatch, gamePhase, onStart }) {
         type="button"
       >
         <Gamepad2 size={20} />
-        <span>{isRunning ? "LIVE" : "START"}</span>
+        <span>{startRetrying ? `RETRY ${retryInfo.attempt}` : isRunning ? "LIVE" : "START"}</span>
       </button>
     </div>
   );
 }
 
-function ResultPanel({ state, busy, canPlayRound, mintedOut, level, speed, onMint, onGenerateRandom, onResult }) {
+function ResultPanel({ state, busy, retryInfo, canPlayRound, mintedOut, level, speed, onMint, onGenerateRandom, onResult }) {
   const session = state.game.lockedResult;
+  const mintRetrying = retryInfo?.key === "mint";
   const hasInviteAccess =
     state.status?.isAllowlisted ||
     state.status?.inviteRequired === false ||
@@ -1986,7 +2026,7 @@ function ResultPanel({ state, busy, canPlayRound, mintedOut, level, speed, onMin
       </div>
       <button className="start-button" onClick={onMint} disabled={busy || !canMint}>
         <ShieldCheck size={18} />
-        MINT NFT
+        {mintRetrying ? `BUSY — RETRYING (${retryInfo.attempt})` : "MINT NFT"}
       </button>
       {SHOW_REVEAL_STATUS && canMint && reveal && (
         <div className={`reveal-badge ${reveal.ready ? "ready" : ""}`}>
@@ -2004,7 +2044,7 @@ function ResultPanel({ state, busy, canPlayRound, mintedOut, level, speed, onMin
           disabled={busy || !canPlayRound}
           title="Skip playing: get a random score and mint it. No replay, and it can't be re-rolled."
         >
-          GENERATE RANDOM &amp; MINT
+          {mintRetrying ? `BUSY — RETRYING (${retryInfo.attempt})` : "GENERATE RANDOM & MINT"}
         </button>
         {mintedOut && <div className="minted-out-note">All 3 mint spots used.</div>}
         <button className="press-key wide" onClick={onResult} disabled={busy || !state.wallet}>
