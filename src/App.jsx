@@ -782,6 +782,19 @@ function extractWallets(text) {
   return { wallets, duplicates, total: matches.length };
 }
 
+// The backend caps each allowlist add at 5000 wallets, so big uploads (e.g. 17k)
+// are submitted in batches — one admin signature, many POSTs.
+const ALLOWLIST_BATCH_SIZE = 5000;
+// Only render a slice of very large allowlists — 17k DOM rows would freeze the
+// page. COPY ALL still copies every entry.
+const ALLOWLIST_RENDER_CAP = 500;
+
+function chunk(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
 function resolveAdminView() {
   const path = window.location.pathname.replace(/\/+$/, "");
   if (path === ADMIN_ROUTES.allowlist) return "allowlist";
@@ -1034,16 +1047,33 @@ function AdminPage({ dialog }) {
     }
 
     try {
-      setLoadingLabel("Adding allowlist");
       setMessage("");
+      // Sign once — the admin message is fixed, so the same signature authorizes
+      // every batch.
       const signature = await signAdminMessage();
-      await addAllowlistWallets(form.adminWallet, signature, wallets);
-      const result = await listAllowlist(form.adminWallet, signature);
-      setAllowlistEntries(result.entries || []);
+      const batches = chunk(wallets, ALLOWLIST_BATCH_SIZE);
+      let added = 0;
+      let failed = 0;
+
+      for (let i = 0; i < batches.length; i += 1) {
+        const done = Math.min((i + 1) * ALLOWLIST_BATCH_SIZE, wallets.length);
+        setLoadingLabel(`Adding allowlist ${done}/${wallets.length} (batch ${i + 1}/${batches.length})`);
+        try {
+          await addAllowlistWallets(form.adminWallet, signature, batches[i]);
+          added += batches[i].length;
+        } catch {
+          // Backend dedupes, so re-running is safe — keep going and tally.
+          failed += batches[i].length;
+        }
+      }
+
       setForm((current) => ({ ...current, allowlistInput: "" }));
       setAllowlistStats(null);
-      const dupNote = duplicates ? ` (${duplicates} duplicate${duplicates === 1 ? "" : "s"} skipped)` : "";
-      setMessage(`Added ${wallets.length} wallet${wallets.length === 1 ? "" : "s"} to the allowlist${dupNote}.`);
+      const dupNote = duplicates ? ` · ${duplicates} duplicate(s) skipped` : "";
+      const failNote = failed ? ` · ${failed} failed — re-run to retry (duplicates are ignored)` : "";
+      setMessage(
+        `Submitted ${added}/${wallets.length} wallet(s) in ${batches.length} batch(es)${dupNote}${failNote}. Press LOAD to view.`
+      );
     } catch (error) {
       setMessage(error.shortMessage || error.message);
     } finally {
@@ -1465,12 +1495,14 @@ function AdminPage({ dialog }) {
 
             <div className="list-count">
               {allowlistEntries.length} wallet{allowlistEntries.length === 1 ? "" : "s"} on the allowlist
+              {allowlistEntries.length > ALLOWLIST_RENDER_CAP &&
+                ` · showing first ${ALLOWLIST_RENDER_CAP} (use COPY ALL for the full list)`}
             </div>
             <div className="allowlist-list scrolled">
               {allowlistEntries.length === 0 && (
                 <div className="status-tape">No allowlisted wallets loaded.</div>
               )}
-              {allowlistEntries.map((entry) => (
+              {allowlistEntries.slice(0, ALLOWLIST_RENDER_CAP).map((entry) => (
                 <div className="allowlist-row" key={entry.walletAddress}>
                   <code>{entry.walletAddress}</code>
                   <button
