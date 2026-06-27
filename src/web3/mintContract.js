@@ -11,9 +11,9 @@ import {
 } from "ethers";
 import { ensureChain, getActiveProvider } from "./wallet";
 
-const SEPOLIA_CHAIN_ID = 11155111;
+const MAINNET_CHAIN_ID = 1;
 const FALLBACK_CONTRACT_ADDRESS = import.meta.env.VITE_MINT_CONTRACT_ADDRESS || "";
-const FALLBACK_CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID || SEPOLIA_CHAIN_ID);
+const FALLBACK_CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID || MAINNET_CHAIN_ID);
 
 export const SNAKIOX_ABI = [
   "function mint(bytes32 snakeDataHash, uint256 score, uint256 snakeLength, bytes32 sessionHash, bool random, uint256 revealBlock, bytes signature) payable returns (uint256 tokenId)",
@@ -30,7 +30,7 @@ export const SNAKIOX_ABI = [
   "function hasMinted(address wallet) view returns (bool)",
   "function mintedPerWallet(address wallet) view returns (uint256)",
   "function usedSession(bytes32 sessionHash) view returns (bool)",
-  "function mintPayloadHash(address wallet, bytes32 sessionHash, bytes32 snakeDataHash, uint256 score, uint256 snakeLength) view returns (bytes32)",
+  "function mintPayloadHash(address wallet, bytes32 sessionHash, bytes32 snakeDataHash, uint256 score, uint256 snakeLength, bool random, uint256 revealBlock) view returns (bytes32)",
   "function tokenURI(uint256 tokenId) view returns (string)",
   "function svgForToken(uint256 tokenId) view returns (string)",
   "function setMintPrice(uint256 newMintPrice)",
@@ -156,7 +156,7 @@ async function waitForBlock(provider, target, onStatus = () => {}) {
   let current = await provider.getBlockNumber();
   if (current > target) return; // reveal block already mined — no wait
 
-  // ~12s/block on Sepolia; poll a bit faster so we fire as soon as it lands.
+  // ~12s/block on Ethereum; poll a bit faster so we fire as soon as it lands.
   for (let i = 0; i < 60; i++) {
     const remaining = Math.max(target - current + 1, 1);
     onStatus(`Waiting for reveal block (~${remaining * 12}s)`);

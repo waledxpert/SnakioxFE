@@ -1,7 +1,7 @@
 import { getAddress } from "ethers";
 
-const SEPOLIA_CHAIN_ID = 11155111;
-const FALLBACK_CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID || SEPOLIA_CHAIN_ID);
+const MAINNET_CHAIN_ID = 1;
+const FALLBACK_CHAIN_ID = Number(import.meta.env.VITE_CHAIN_ID || MAINNET_CHAIN_ID);
 
 // ─── EIP-6963 wallet discovery ──────────────────────────────────────────────
 // Every installed wallet announces itself, so we can list them by name/icon and
@@ -112,17 +112,18 @@ export async function ensureChain(chainId = FALLBACK_CHAIN_ID) {
       params: [{ chainId: hexChainId }]
     });
   } catch (error) {
-    // 4902 = chain not added yet → add it (Sepolia only), then it's selected.
-    if (error?.code !== 4902 || chainId !== SEPOLIA_CHAIN_ID) throw error;
+    // 4902 = chain not added yet → add it, then it's selected. (Rare on mainnet
+    // since wallets ship with it.)
+    if (error?.code !== 4902 || chainId !== MAINNET_CHAIN_ID) throw error;
     await provider.request({
       method: "wallet_addEthereumChain",
       params: [
         {
           chainId: hexChainId,
-          chainName: "Sepolia",
-          nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: ["https://rpc.sepolia.org"],
-          blockExplorerUrls: ["https://sepolia.etherscan.io"]
+          chainName: "Ethereum",
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://eth.llamarpc.com"],
+          blockExplorerUrls: ["https://etherscan.io"]
         }
       ]
     });

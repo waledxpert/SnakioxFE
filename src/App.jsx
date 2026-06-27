@@ -103,8 +103,8 @@ const CONTRACT_ADDRESS = import.meta.env.VITE_MINT_CONTRACT_ADDRESS || "";
 // "instant mint ready / reveal in ~Xs" badge from players.
 const SHOW_REVEAL_STATUS = import.meta.env.VITE_SHOW_REVEAL_STATUS !== "false";
 const OPENSEA_BASE_URL =
-  import.meta.env.VITE_OPENSEA_BASE_URL || "https://testnets.opensea.io/assets/sepolia";
-const SEPOLIA_ETHERSCAN_BASE_URL = "https://sepolia.etherscan.io";
+  import.meta.env.VITE_OPENSEA_BASE_URL || "https://opensea.io/item/ethereum";
+const ETHERSCAN_BASE_URL = "https://etherscan.io";
 
 // Games auto-end after 40 minutes; the score at that moment becomes final.
 const MAX_GAME_MS = 40 * 60 * 1000;
@@ -131,7 +131,7 @@ function resolveFinalCells(mintPayload, game) {
 
 function buildEtherscanTxUrl(txHash) {
   if (!txHash) return "";
-  return `${SEPOLIA_ETHERSCAN_BASE_URL}/tx/${txHash}`;
+  return `${ETHERSCAN_BASE_URL}/tx/${txHash}`;
 }
 
 // A round is "in progress" from the moment it starts (playing → dead → locked)
@@ -671,7 +671,7 @@ function WalletConnectModal({ busy, onClose, onPick }) {
             ))}
           </div>
         )}
-        <p className="wallet-modal-note">Sepolia testnet · read access + network switch only.</p>
+        <p className="wallet-modal-note">Ethereum mainnet · read access + network switch only.</p>
       </div>
     </div>
   );
