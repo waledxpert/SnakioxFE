@@ -225,6 +225,7 @@ button:disabled {
   transform: translate(-50%, -50%);
   transition: background 0.12s, border-color 0.12s;
   white-space: nowrap;
+  z-index: 2;
 }
 
 .screen-start-btn:active:not(:disabled) {
