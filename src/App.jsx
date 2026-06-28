@@ -698,7 +698,6 @@ function GameSurface({
   isMobile = false,
   level,
   onStart,
-  retryInfo,
   sessions,
   speed,
   supply
@@ -1943,6 +1942,33 @@ function SnakeBoard({ game, onStart, canStart }) {
   const headKey = makeCellKey(game.snake[0]);
   const faceDir = game.direction || headDirection(game.snake);
 
+  // The START button shows whenever a run can actually begin — even after a
+  // locked/minted result — so a finished round doesn't trap the board on
+  // "RESULT LOCKED". Falls back to status messages when you can't start.
+  const screenOverlay = () => {
+    if (game.phase === "playing") return null;
+    if (onStart && canStart) {
+      return (
+        <button className="screen-start-btn" onClick={onStart} type="button">
+          ▶ START RUN
+        </button>
+      );
+    }
+    if (game.phase === "idle") {
+      return onStart ? (
+        <button className="screen-start-btn" disabled type="button">
+          ▶ START RUN
+          <span className="screen-start-sub">CONNECT WALLET FIRST</span>
+        </button>
+      ) : (
+        <div className="screen-message">PRESS START</div>
+      );
+    }
+    if (game.phase === "dead") return <div className="screen-message">SIGNAL LOST</div>;
+    if (game.phase === "locked") return <div className="screen-message">RESULT LOCKED</div>;
+    return null;
+  };
+
   return (
     <div className="lcd-wrap">
       <div
@@ -1970,23 +1996,7 @@ function SnakeBoard({ game, onStart, canStart }) {
           );
         })}
       </div>
-      {game.phase === "idle" && (
-        onStart
-          ? (
-            <button
-              className="screen-start-btn"
-              onClick={onStart}
-              disabled={!canStart}
-              type="button"
-            >
-              ▶ START RUN
-              {!canStart && <span className="screen-start-sub">CONNECT WALLET FIRST</span>}
-            </button>
-          )
-          : <div className="screen-message">PRESS START</div>
-      )}
-      {game.phase === "dead" && <div className="screen-message">SIGNAL LOST</div>}
-      {game.phase === "locked" && <div className="screen-message">RESULT LOCKED</div>}
+      {screenOverlay()}
     </div>
   );
 }
@@ -2077,7 +2087,7 @@ function MobileTrackpad({ onDir }) {
   );
 }
 
-function MobileDirectionPad({ dispatch, gamePhase }) {
+function MobileDirectionPad({ dispatch }) {
   const queue = (direction) => dispatch({ type: "QUEUE_DIRECTION", direction });
   const [ctrlMode, setCtrlMode] = useState(
     () => localStorage.getItem("snakiox.ctrl.fe") || "dpad"

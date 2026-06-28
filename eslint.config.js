@@ -17,6 +17,7 @@ export default [
         Event: "readonly",
         fetch: "readonly",
         import: "readonly",
+        localStorage: "readonly",
         setTimeout: "readonly",
         window: "readonly"
       },
