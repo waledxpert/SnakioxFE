@@ -47,6 +47,11 @@ function gameReducer(state, action) {
     case "QUEUE_DIRECTION": {
       if (state.game.phase !== "playing") return state;
       if (isOpposite(state.game.direction, action.direction)) return state;
+      // Only record actual turns. Repeats of the current heading (key auto-repeat
+      // while held, trackpad/d-pad firing continuously) are no-ops for gameplay
+      // and, if recorded, flood the moves log and trip the backend's anti-bot
+      // burst check.
+      if (action.direction === state.game.pendingDirection) return state;
       const move = {
         direction: action.direction,
         tick: state.game.tick,
