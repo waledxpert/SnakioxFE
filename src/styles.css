@@ -204,6 +204,46 @@ button:disabled {
   transform: translate(-50%, -50%);
 }
 
+.screen-start-btn {
+  align-items: center;
+  background: rgba(15, 26, 11, 0.88);
+  border: 2px solid rgba(207, 255, 126, 0.7);
+  color: #e6ffab;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  font-family: inherit;
+  font-size: clamp(1.2rem, 4.5vw, 2.4rem);
+  gap: 0.45rem;
+  inset: 50% auto auto 50%;
+  justify-content: center;
+  min-width: min(82%, 390px);
+  padding: 1.4rem 1.8rem;
+  position: absolute;
+  text-align: center;
+  text-shadow: 0 0 12px rgba(211, 255, 135, 0.7);
+  transform: translate(-50%, -50%);
+  transition: background 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+
+.screen-start-btn:active:not(:disabled) {
+  background: rgba(207, 255, 126, 0.16);
+  border-color: rgba(207, 255, 126, 0.95);
+}
+
+.screen-start-btn:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+  opacity: 0.5;
+}
+
+.screen-start-sub {
+  font-size: 0.48em;
+  letter-spacing: 0.06em;
+  opacity: 0.65;
+}
+
 .panel {
   align-self: stretch;
   background: #202d20;
@@ -388,11 +428,10 @@ button:disabled {
 }
 
 .mobile-control-deck {
-  align-items: end;
+  align-items: center;
   display: flex;
   justify-content: center;
-  min-height: 144px;
-  position: relative;
+  padding-top: 0.15rem;
   width: 100%;
 }
 
@@ -478,7 +517,7 @@ button:disabled {
   color: #d7ff96;
   display: flex;
   flex-direction: column;
-  height: min(94vh, 680px);
+  height: min(98vh, 860px);
   max-width: min(96vw, 920px);
   overflow: hidden;
   width: 100%;
@@ -1204,6 +1243,118 @@ a.press-key {
   min-height: 44px;
 }
 
+/* ── Mobile swipe trackpad + D-Pad toggle ── */
+.snx-ctrl-wrap {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.snx-ctrl-toggle {
+  border: 3px solid #0b120b;
+  display: flex;
+  overflow: hidden;
+}
+
+.snx-ctrl-btn {
+  background: #0d150e;
+  border: none;
+  color: #8fb061;
+  font-family: inherit;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  min-height: 28px;
+  padding: 0.25rem 0.9rem;
+  transition: background 0.1s, color 0.1s;
+}
+
+.snx-ctrl-btn--on {
+  background: linear-gradient(#d8ffa0, #90aa5e);
+  color: #111d0d;
+}
+
+.snx-trackpad {
+  background: #0c130d;
+  border: 3px solid #354f28;
+  cursor: crosshair;
+  display: grid;
+  min-height: 220px;
+  overflow: hidden;
+  place-items: center;
+  position: relative;
+  touch-action: none;
+  width: 100%;
+}
+
+.snx-trackpad::before,
+.snx-trackpad::after {
+  background: rgba(154, 180, 97, 0.1);
+  content: "";
+  pointer-events: none;
+  position: absolute;
+}
+
+.snx-trackpad::before {
+  bottom: 0;
+  left: 50%;
+  top: 0;
+  width: 1px;
+}
+
+.snx-trackpad::after {
+  height: 1px;
+  left: 0;
+  right: 0;
+  top: 50%;
+}
+
+.snx-tp-arrow {
+  color: rgba(154, 180, 97, 0.35);
+  font-size: 1rem;
+  line-height: 1;
+  pointer-events: none;
+  position: absolute;
+  transition: color 0.1s, text-shadow 0.1s, transform 0.1s;
+}
+
+.snx-tp-arrow--up    { left: 50%; top: 0.5rem; transform: translateX(-50%); }
+.snx-tp-arrow--down  { bottom: 0.5rem; left: 50%; transform: translateX(-50%); }
+.snx-tp-arrow--left  { left: 0.6rem; top: 50%; transform: translateY(-50%); }
+.snx-tp-arrow--right { right: 0.6rem; top: 50%; transform: translateY(-50%); }
+
+.snx-tp-arrow--up.snx-tp-lit    { color: #d8ffa0; text-shadow: 0 0 8px rgba(216,255,160,0.8); transform: translateX(-50%) scale(1.5); }
+.snx-tp-arrow--down.snx-tp-lit  { color: #d8ffa0; text-shadow: 0 0 8px rgba(216,255,160,0.8); transform: translateX(-50%) scale(1.5); }
+.snx-tp-arrow--left.snx-tp-lit  { color: #d8ffa0; text-shadow: 0 0 8px rgba(216,255,160,0.8); transform: translateY(-50%) scale(1.5); }
+.snx-tp-arrow--right.snx-tp-lit { color: #d8ffa0; text-shadow: 0 0 8px rgba(216,255,160,0.8); transform: translateY(-50%) scale(1.5); }
+
+.snx-tp-label {
+  color: rgba(154, 180, 97, 0.28);
+  font-size: 0.6rem;
+  letter-spacing: 0.14em;
+  pointer-events: none;
+  user-select: none;
+  z-index: 1;
+}
+
+.snx-tp-glow {
+  animation: snx-tp-appear 0.1s ease;
+  background: radial-gradient(circle, rgba(216, 255, 160, 0.2) 0%, transparent 68%);
+  border-radius: 50%;
+  height: 100px;
+  pointer-events: none;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 100px;
+}
+
+@keyframes snx-tp-appear {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
 @keyframes blink {
   50% {
     opacity: 0.45;
@@ -1324,7 +1475,7 @@ a.press-key {
 
   .mobile-game-surface .mobile-play-layout {
     display: grid;
-    gap: 1rem;
+    gap: 0.65rem;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) auto;
     min-height: 0;
@@ -1334,7 +1485,7 @@ a.press-key {
     align-self: center;
     border-width: 6px;
     justify-self: center;
-    max-height: min(62vh, 480px);
+    max-height: min(52vh, 420px);
     min-height: 0;
     width: min(100%, 480px);
   }
@@ -1345,20 +1496,22 @@ a.press-key {
   }
 
   .mobile-game-surface .mobile-control-deck {
-    align-self: center;
-    justify-self: center;
-    margin-bottom: 0.45rem;
-    margin-top: 0.15rem;
+    align-self: stretch;
+    justify-self: stretch;
     width: 100%;
   }
 
+  .mobile-game-surface .snx-trackpad {
+    min-height: 200px;
+  }
+
   .mobile-game-surface .mobile-dpad {
-    grid-template-columns: repeat(3, 48px);
-    grid-template-rows: repeat(3, 48px);
+    grid-template-columns: repeat(3, 68px);
+    grid-template-rows: repeat(3, 68px);
   }
 
   .mobile-game-surface .mobile-dpad button {
-    min-height: 48px;
+    min-height: 68px;
   }
 
   .mobile-game-surface .replay-strip,

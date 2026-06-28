@@ -708,14 +708,15 @@ function GameSurface({
       {isMobile ? null : <MintSupplyTracker supply={supply} />}
       <ScoreLine score={game.score} level={level} speed={speed} phase={game.phase} />
       <div className="mobile-play-layout">
-        <SnakeBoard game={game} />
+        <SnakeBoard
+          game={game}
+          onStart={isMobile ? onStart : undefined}
+          canStart={isMobile ? canStart : undefined}
+        />
         {isMobile ? (
           <MobileDirectionPad
-            canStart={canStart}
             dispatch={dispatch}
             gamePhase={game.phase}
-            onStart={onStart}
-            retryInfo={retryInfo}
           />
         ) : null}
       </div>
@@ -1937,7 +1938,7 @@ function ScoreLine({ score, level, speed, phase }) {
   );
 }
 
-function SnakeBoard({ game }) {
+function SnakeBoard({ game, onStart, canStart }) {
   const snakeCells = useMemo(() => new Set(game.snake.map(makeCellKey)), [game.snake]);
   const headKey = makeCellKey(game.snake[0]);
   const faceDir = game.direction || headDirection(game.snake);
@@ -1969,7 +1970,21 @@ function SnakeBoard({ game }) {
           );
         })}
       </div>
-      {game.phase === "idle" && <div className="screen-message">PRESS START</div>}
+      {game.phase === "idle" && (
+        onStart
+          ? (
+            <button
+              className="screen-start-btn"
+              onClick={onStart}
+              disabled={!canStart}
+              type="button"
+            >
+              ▶ START RUN
+              {!canStart && <span className="screen-start-sub">CONNECT WALLET FIRST</span>}
+            </button>
+          )
+          : <div className="screen-message">PRESS START</div>
+      )}
       {game.phase === "dead" && <div className="screen-message">SIGNAL LOST</div>}
       {game.phase === "locked" && <div className="screen-message">RESULT LOCKED</div>}
     </div>
@@ -1989,37 +2004,128 @@ function TouchControls({ dispatch }) {
   );
 }
 
-function MobileDirectionPad({ canStart, dispatch, gamePhase, onStart, retryInfo }) {
+function MobileTrackpad({ onDir }) {
+  const padRef = useRef(null);
+  const anchorRef = useRef(null);
+  const [touchPct, setTouchPct] = useState(null);
+  const [litDir, setLitDir] = useState(null);
+
+  const handleTouchStart = (e) => {
+    e.preventDefault();
+    const t = e.touches[0];
+    anchorRef.current = { x: t.clientX, y: t.clientY };
+    const rect = padRef.current.getBoundingClientRect();
+    setTouchPct({
+      x: ((t.clientX - rect.left) / rect.width) * 100,
+      y: ((t.clientY - rect.top) / rect.height) * 100,
+    });
+  };
+
+  const handleTouchMove = (e) => {
+    e.preventDefault();
+    if (!anchorRef.current) return;
+    const t = e.touches[0];
+    const rect = padRef.current.getBoundingClientRect();
+    setTouchPct({
+      x: ((t.clientX - rect.left) / rect.width) * 100,
+      y: ((t.clientY - rect.top) / rect.height) * 100,
+    });
+    const dx = t.clientX - anchorRef.current.x;
+    const dy = t.clientY - anchorRef.current.y;
+    if (Math.hypot(dx, dy) < 22) return;
+    const dir =
+      Math.abs(dx) >= Math.abs(dy)
+        ? dx > 0
+          ? "RIGHT"
+          : "LEFT"
+        : dy > 0
+          ? "DOWN"
+          : "UP";
+    anchorRef.current = { x: t.clientX, y: t.clientY };
+    setLitDir(dir);
+    window.setTimeout(() => setLitDir(null), 180);
+    onDir(dir);
+  };
+
+  const handleTouchEnd = () => {
+    anchorRef.current = null;
+    setTouchPct(null);
+    setLitDir(null);
+  };
+
+  return (
+    <div
+      ref={padRef}
+      className="snx-trackpad"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      aria-label="Swipe pad"
+    >
+      <span className={`snx-tp-arrow snx-tp-arrow--up${litDir === "UP" ? " snx-tp-lit" : ""}`}>▲</span>
+      <span className={`snx-tp-arrow snx-tp-arrow--down${litDir === "DOWN" ? " snx-tp-lit" : ""}`}>▼</span>
+      <span className={`snx-tp-arrow snx-tp-arrow--left${litDir === "LEFT" ? " snx-tp-lit" : ""}`}>◀</span>
+      <span className={`snx-tp-arrow snx-tp-arrow--right${litDir === "RIGHT" ? " snx-tp-lit" : ""}`}>▶</span>
+      <span className="snx-tp-label">SWIPE</span>
+      {touchPct && (
+        <span
+          className="snx-tp-glow"
+          style={{ left: `${touchPct.x}%`, top: `${touchPct.y}%` }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MobileDirectionPad({ dispatch, gamePhase }) {
   const queue = (direction) => dispatch({ type: "QUEUE_DIRECTION", direction });
-  const isRunning = gamePhase === "running";
-  const startRetrying = retryInfo?.key === "play";
+  const [ctrlMode, setCtrlMode] = useState(
+    () => localStorage.getItem("snakiox.ctrl.fe") || "dpad"
+  );
+
+  const switchCtrl = (mode) => {
+    setCtrlMode(mode);
+    localStorage.setItem("snakiox.ctrl.fe", mode);
+  };
 
   return (
     <div className="mobile-control-deck">
-      <div className="mobile-dpad" aria-label="Mobile direction controls">
-        <button className="dpad-up" onClick={() => queue("UP")} type="button">
-          <ChevronUp size={26} />
-        </button>
-        <button className="dpad-left" onClick={() => queue("LEFT")} type="button">
-          <ChevronLeft size={26} />
-        </button>
-        <button className="dpad-right" onClick={() => queue("RIGHT")} type="button">
-          <ChevronRight size={26} />
-        </button>
-        <button className="dpad-down" onClick={() => queue("DOWN")} type="button">
-          <ChevronDown size={26} />
-        </button>
+      <div className="snx-ctrl-wrap">
+        <div className="snx-ctrl-toggle">
+          <button
+            className={`snx-ctrl-btn${ctrlMode === "dpad" ? " snx-ctrl-btn--on" : ""}`}
+            onClick={() => switchCtrl("dpad")}
+            type="button"
+          >
+            D-PAD
+          </button>
+          <button
+            className={`snx-ctrl-btn${ctrlMode === "trackpad" ? " snx-ctrl-btn--on" : ""}`}
+            onClick={() => switchCtrl("trackpad")}
+            type="button"
+          >
+            SWIPE
+          </button>
+        </div>
+        {ctrlMode === "dpad" ? (
+          <div className="mobile-dpad" aria-label="Mobile direction controls">
+            <button className="dpad-up" onClick={() => queue("UP")} type="button">
+              <ChevronUp size={26} />
+            </button>
+            <button className="dpad-left" onClick={() => queue("LEFT")} type="button">
+              <ChevronLeft size={26} />
+            </button>
+            <button className="dpad-right" onClick={() => queue("RIGHT")} type="button">
+              <ChevronRight size={26} />
+            </button>
+            <button className="dpad-down" onClick={() => queue("DOWN")} type="button">
+              <ChevronDown size={26} />
+            </button>
+          </div>
+        ) : (
+          <MobileTrackpad onDir={queue} />
+        )}
       </div>
-      <button
-        aria-label="Start game"
-        className="mobile-start-control"
-        disabled={!canStart || isRunning}
-        onClick={onStart}
-        type="button"
-      >
-        <Gamepad2 size={20} />
-        <span>{startRetrying ? `RETRY ${retryInfo.attempt}` : isRunning ? "LIVE" : "START"}</span>
-      </button>
     </div>
   );
 }
